@@ -6,7 +6,7 @@
 set -e
 
 DB_PATH="./data/vibers.db"
-DDL_PATH="./data/ddl.sql"
+DDL_PATH="./data/ddl_simple.sql"
 SAMPLE_PATH="./data/sample.csv"
 
 echo "🚀 Initializing VibeRS database..."
@@ -21,7 +21,7 @@ fi
 echo "📋 Creating database schema..."
 sqlite3 "$DB_PATH" < "$DDL_PATH"
 
-# Import sample data
+# Import sample data with safer approach
 echo "📊 Importing sample data..."
 sqlite3 "$DB_PATH" <<EOF
 .mode csv
@@ -34,9 +34,8 @@ echo "✅ Verifying data import..."
 COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM items;")
 echo "   Imported $COUNT items"
 
-# Build FTS index
-echo "🔍 Building full-text search index..."
-sqlite3 "$DB_PATH" "INSERT INTO items_fts(items_fts) VALUES('rebuild');"
+# Build FTS index (FTS will be populated via triggers)
+echo "🔍 FTS index will be populated automatically via triggers..."
 
 echo "🎉 Database initialization complete!"
 echo "   Database: $DB_PATH"

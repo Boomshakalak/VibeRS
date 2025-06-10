@@ -46,16 +46,22 @@ func main() {
 	r.POST("/search", func(c *gin.Context) {
 		var req SearchRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("JSON binding error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		// TODO: Implement parallel recall
+		log.Printf("Search request: query='%s', page=%d", req.Query, req.Page)
+
+		// Implement parallel recall
 		items, err := recallService.ParallelRecall(req.Query)
 		if err != nil {
+			log.Printf("Parallel recall error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+
+		log.Printf("Parallel recall returned %d items", len(items))
 
 		// TODO: Implement deduplication
 		dedupedItems := dedupService.Deduplicate(items)

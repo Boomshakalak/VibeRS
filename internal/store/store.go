@@ -110,19 +110,18 @@ func cosineSimilarity(a, b []float32) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-// GetItemsByTextSearch performs full-text search
+// GetItemsByTextSearch performs simple text search (without FTS for now)
 func (s *Service) GetItemsByTextSearch(query string, limit int) ([]Item, error) {
 	sqlQuery := `
-		SELECT i.item_id, i.title, i.brand, i.price_cents, i.discount, 
-		       i.rating, i.stock, i.launched_at, i.click_7d, i.buy_7d, i.gmv_30d
-		FROM items i
-		JOIN items_fts fts ON i.item_id = fts.rowid
-		WHERE items_fts MATCH ?
-		ORDER BY rank
+		SELECT item_id, title, brand, price_cents, discount, 
+		       rating, stock, launched_at, click_7d, buy_7d, gmv_30d
+		FROM items
+		WHERE title LIKE '%' || ? || '%' OR brand LIKE '%' || ? || '%'
+		ORDER BY rating DESC, gmv_30d DESC
 		LIMIT ?
 	`
 
-	rows, err := s.db.Query(sqlQuery, query, limit)
+	rows, err := s.db.Query(sqlQuery, query, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -200,14 +199,32 @@ func (s *Service) scanItems(rows *sql.Rows) ([]Item, error) {
 
 	for rows.Next() {
 		var item Item
+		var launchedAt sql.NullTime
+		var click7d, buy7d, gmv30d sql.NullInt64
+
 		err := rows.Scan(
 			&item.ItemID, &item.Title, &item.Brand, &item.PriceCents,
-			&item.Discount, &item.Rating, &item.Stock, &item.LaunchedAt,
-			&item.Click7d, &item.Buy7d, &item.GMV30d,
+			&item.Discount, &item.Rating, &item.Stock, &launchedAt,
+			&click7d, &buy7d, &gmv30d,
 		)
 		if err != nil {
 			return nil, err
 		}
+
+		// Handle NULL values
+		if launchedAt.Valid {
+			item.LaunchedAt = launchedAt.Time
+		}
+		if click7d.Valid {
+			item.Click7d = int(click7d.Int64)
+		}
+		if buy7d.Valid {
+			item.Buy7d = int(buy7d.Int64)
+		}
+		if gmv30d.Valid {
+			item.GMV30d = int(gmv30d.Int64)
+		}
+
 		items = append(items, item)
 	}
 

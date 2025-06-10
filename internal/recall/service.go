@@ -33,7 +33,10 @@ func (s *Service) ParallelRecall(query string) ([]store.Item, error) {
 	go func() {
 		defer wg.Done()
 		items, err := s.store.GetItemsByTextSearch(query, 1000)
-		if err == nil {
+		if err != nil {
+			// Log error but continue with empty result
+			results <- RecallResult{Items: []store.Item{}, Source: "text", Score: 1.0}
+		} else {
 			results <- RecallResult{Items: items, Source: "text", Score: 1.0}
 		}
 	}()
@@ -43,7 +46,9 @@ func (s *Service) ParallelRecall(query string) ([]store.Item, error) {
 	go func() {
 		defer wg.Done()
 		items, err := s.store.GetItemsByFilter("", 0, 0.0, 1000)
-		if err == nil {
+		if err != nil {
+			results <- RecallResult{Items: []store.Item{}, Source: "attr", Score: 0.8}
+		} else {
 			results <- RecallResult{Items: items, Source: "attr", Score: 0.8}
 		}
 	}()
@@ -53,7 +58,9 @@ func (s *Service) ParallelRecall(query string) ([]store.Item, error) {
 	go func() {
 		defer wg.Done()
 		items, err := s.store.GetHotItems(1000)
-		if err == nil {
+		if err != nil {
+			results <- RecallResult{Items: []store.Item{}, Source: "hot", Score: 0.6}
+		} else {
 			results <- RecallResult{Items: items, Source: "hot", Score: 0.6}
 		}
 	}()
@@ -63,7 +70,9 @@ func (s *Service) ParallelRecall(query string) ([]store.Item, error) {
 	go func() {
 		defer wg.Done()
 		items, err := s.store.GetRandomItems(500)
-		if err == nil {
+		if err != nil {
+			results <- RecallResult{Items: []store.Item{}, Source: "explore", Score: 0.3}
+		} else {
 			results <- RecallResult{Items: items, Source: "explore", Score: 0.3}
 		}
 	}()
