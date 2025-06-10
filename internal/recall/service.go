@@ -19,13 +19,15 @@ type Service struct {
 
 // NewService creates a new recall service with all specialized recallers
 func NewService(storeService *store.Service) *Service {
+	ann := NewANNRecaller(storeService)
+	_ = ann.Build()
 	return &Service{
 		store:        storeService,
 		textRecaller: NewTextRecaller(storeService),
 		attrRecaller: NewAttrRecaller(storeService),
 		hotRecaller:  NewHotRecaller(storeService),
 		expRecaller:  NewExpRecaller(storeService),
-		annRecaller:  NewANNRecaller(storeService),
+		annRecaller:  ann,
 	}
 }
 
@@ -115,6 +117,20 @@ func (s *Service) ParallelRecall(query string) ([]store.Item, error) {
 			results <- RecallResult{Items: []store.Item{}, Source: "explore", Score: 0.2}
 		} else {
 			results <- RecallResult{Items: items, Source: "explore", Score: 0.2}
+		}
+	}()
+
+	// ANN vector recall
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// simple zero vector as placeholder when embedding unavailable
+		// In practice, convert query text to embedding
+		items, err := s.annRecaller.VectorSimilarityRecall(make([]float32, s.annRecaller.dim), 200)
+		if err != nil {
+			results <- RecallResult{Items: []store.Item{}, Source: "ann", Score: 0.5}
+		} else {
+			results <- RecallResult{Items: items, Source: "ann", Score: 0.5}
 		}
 	}()
 
