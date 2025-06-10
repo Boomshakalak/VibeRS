@@ -159,6 +159,9 @@ TTL default **10 min**; after expiry client gets a fresh snapshot.
 | Python model env        | `cd model‑training && pip install -r requirements.txt` |
 | Benchmark 1 K QPS (WIP) | `scripts/bench.sh`                                     |
 
+### 7a · Synthetic Dataset
+Run `scripts/gen_mock_data.py --items 100000` to bootstrap a large DB with random embeddings.
+Use the generated `vibers_big.db` when testing ANN recall.
 *You may still use the included **Makefile** as a thin wrapper, but it's optional.*
 
 ---

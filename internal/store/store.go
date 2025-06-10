@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -70,12 +72,19 @@ func registerCosineSimilarity(db *sql.DB) error {
 		return cosineSimilarity(vec1, vec2)
 	}
 
-	// Note: This is a simplified version. In a real implementation,
-	// you'd need to use a Go SQLite driver that supports custom functions
-	// like modernc.org/sqlite or a CGO-enabled version
-	_ = cosineFunc // TODO: Actually register the function
-
-	return nil
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	err = conn.Raw(func(driverConn interface{}) error {
+		sqliteConn, ok := driverConn.(*sqlite3.SQLiteConn)
+		if !ok {
+			return fmt.Errorf("not a sqlite3 connection")
+		}
+		return sqliteConn.RegisterFunc("Cosine", cosineFunc, true)
+	})
+	return err
 }
 
 // bytesToFloat32Slice converts byte slice to float32 slice
@@ -90,6 +99,15 @@ func bytesToFloat32Slice(data []byte) []float32 {
 		result[i] = math.Float32frombits(bits)
 	}
 	return result
+}
+
+// float32SliceToBytes converts a float32 slice to little-endian bytes
+func float32SliceToBytes(vec []float32) []byte {
+	buf := make([]byte, 4*len(vec))
+	for i, v := range vec {
+		binary.LittleEndian.PutUint32(buf[i*4:(i+1)*4], math.Float32bits(v))
+	}
+	return buf
 }
 
 // cosineSimilarity calculates cosine similarity between two vectors
@@ -223,6 +241,55 @@ func (s *Service) GetRandomItems(limit int) ([]Item, error) {
 	defer rows.Close()
 
 	return s.scanItems(rows)
+}
+
+// GetItemsByIDs fetches items by a list of IDs preserving input order
+func (s *Service) GetItemsByIDs(ids []int) ([]Item, error) {
+	if len(ids) == 0 {
+		return []Item{}, nil
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	sqlQuery := fmt.Sprintf(`
+                SELECT item_id, title, brand, price_cents, discount,
+                       rating, stock, launched_at, click_7d, buy_7d, gmv_30d
+                FROM items
+                WHERE item_id IN (%s)`, strings.Join(placeholders, ","))
+
+	rows, err := s.db.Query(sqlQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanItems(rows)
+}
+
+// GetAllItemEmbeddings returns all item embeddings for ANN index building
+func (s *Service) GetAllItemEmbeddings() ([]Item, error) {
+	sqlQuery := `SELECT item_id, embedding FROM items WHERE embedding IS NOT NULL`
+	rows, err := s.db.Query(sqlQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []Item
+	for rows.Next() {
+		var id int
+		var emb []byte
+		if err := rows.Scan(&id, &emb); err != nil {
+			return nil, err
+		}
+		items = append(items, Item{ItemID: id, Embedding: bytesToFloat32Slice(emb)})
+	}
+	return items, rows.Err()
 }
 
 // GetItemsByPrefixSearch performs prefix-based search for autocomplete
