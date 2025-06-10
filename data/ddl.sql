@@ -22,31 +22,8 @@ CREATE INDEX IF NOT EXISTS idx_items_rating ON items(rating DESC);
 CREATE INDEX IF NOT EXISTS idx_items_stock ON items(stock);
 CREATE INDEX IF NOT EXISTS idx_items_launched ON items(launched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_gmv ON items(gmv_30d DESC);
-
--- Full-text search index
-CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
-  title, 
-  brand, 
-  content='items', 
-  content_rowid='item_id'
-);
-
--- Trigger to keep FTS index in sync
-CREATE TRIGGER IF NOT EXISTS items_fts_insert AFTER INSERT ON items BEGIN
-  INSERT INTO items_fts(rowid, title, brand) VALUES (new.item_id, new.title, new.brand);
-END;
-
-CREATE TRIGGER IF NOT EXISTS items_fts_delete AFTER DELETE ON items BEGIN
-  INSERT INTO items_fts(items_fts, rowid, title, brand) VALUES ('delete', old.item_id, old.title, old.brand);
-END;
-
-CREATE TRIGGER IF NOT EXISTS items_fts_update AFTER UPDATE ON items BEGIN
-  INSERT INTO items_fts(items_fts, rowid, title, brand) VALUES ('delete', old.item_id, old.title, old.brand);
-  INSERT INTO items_fts(rowid, title, brand) VALUES (new.item_id, new.title, new.brand);
-END;
-
--- Optional: Spellfix table for typo-tolerant search
--- CREATE VIRTUAL TABLE IF NOT EXISTS spellfix USING spellfix1;
+CREATE INDEX IF NOT EXISTS idx_items_title ON items(title);
+CREATE INDEX IF NOT EXISTS idx_items_brand ON items(brand);
 
 -- Session cache for pagination
 CREATE TABLE IF NOT EXISTS session_cache (

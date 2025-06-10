@@ -3,7 +3,9 @@ package store
 import (
 	"database/sql"
 	"encoding/binary"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -110,18 +112,48 @@ func cosineSimilarity(a, b []float32) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-// GetItemsByTextSearch performs simple text search (without FTS for now)
+// GetItemsByTextSearch performs fuzzy text search with multiple keywords
 func (s *Service) GetItemsByTextSearch(query string, limit int) ([]Item, error) {
-	sqlQuery := `
+	// Split query into keywords for better matching
+	keywords := strings.Fields(strings.ToLower(query))
+	if len(keywords) == 0 {
+		return []Item{}, nil
+	}
+
+	// Build dynamic WHERE clause for fuzzy matching
+	var conditions []string
+	var args []interface{}
+
+	for _, keyword := range keywords {
+		// Search in both title and brand with case-insensitive matching
+		condition := "(LOWER(title) LIKE ? OR LOWER(brand) LIKE ?)"
+		conditions = append(conditions, condition)
+		likePattern := "%" + keyword + "%"
+		args = append(args, likePattern, likePattern)
+	}
+
+	whereClause := strings.Join(conditions, " AND ")
+
+	sqlQuery := fmt.Sprintf(`
 		SELECT item_id, title, brand, price_cents, discount, 
 		       rating, stock, launched_at, click_7d, buy_7d, gmv_30d
 		FROM items
-		WHERE title LIKE '%' || ? || '%' OR brand LIKE '%' || ? || '%'
-		ORDER BY rating DESC, gmv_30d DESC
+		WHERE %s AND stock > 0
+		ORDER BY 
+			-- Exact title matches first
+			CASE WHEN LOWER(title) = LOWER(?) THEN 1 ELSE 2 END,
+			-- Brand matches second  
+			CASE WHEN LOWER(brand) = LOWER(?) THEN 1 ELSE 2 END,
+			-- Then by relevance score (rating * gmv)
+			(rating * gmv_30d) DESC,
+			rating DESC
 		LIMIT ?
-	`
+	`, whereClause)
 
-	rows, err := s.db.Query(sqlQuery, query, query, limit)
+	// Add original query for exact matching in ORDER BY
+	args = append(args, query, query, limit)
+
+	rows, err := s.db.Query(sqlQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +217,31 @@ func (s *Service) GetRandomItems(limit int) ([]Item, error) {
 	`
 
 	rows, err := s.db.Query(sqlQuery, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanItems(rows)
+}
+
+// GetItemsByPrefixSearch performs prefix-based search for autocomplete
+func (s *Service) GetItemsByPrefixSearch(prefix string, limit int) ([]Item, error) {
+	sqlQuery := `
+		SELECT item_id, title, brand, price_cents, discount, 
+		       rating, stock, launched_at, click_7d, buy_7d, gmv_30d
+		FROM items
+		WHERE (LOWER(title) LIKE LOWER(?) OR LOWER(brand) LIKE LOWER(?)) 
+		  AND stock > 0
+		ORDER BY 
+			-- Exact prefix matches first
+			CASE WHEN LOWER(title) LIKE LOWER(?) THEN 1 ELSE 2 END,
+			CASE WHEN LOWER(brand) LIKE LOWER(?) THEN 1 ELSE 2 END,
+			rating DESC, gmv_30d DESC
+		LIMIT ?
+	`
+
+	rows, err := s.db.Query(sqlQuery, prefix, prefix, prefix, prefix, limit)
 	if err != nil {
 		return nil, err
 	}
